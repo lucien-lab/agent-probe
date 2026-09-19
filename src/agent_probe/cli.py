@@ -15,9 +15,18 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from collections.abc import Sequence
 
 from agent_probe import __version__, doctor
+from agent_probe.audit import (
+    AuditError,
+    audit_ledger,
+    explain_event,
+    load_calls_artifact,
+    load_policy,
+    render_report,
+)
 
 __all__ = ["PROG", "build_parser", "main"]
 
@@ -35,6 +44,40 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         return doctor.EXIT_INTERNAL_ERROR
     print(doctor.render_json(report) if as_json else doctor.render_text(report))
     return report.exit_code
+
+
+def _audit_report_from_args(args: argparse.Namespace):
+    policy = load_policy(args.policy)
+    calls = None if args.calls is None else load_calls_artifact(args.calls)
+    return audit_ledger(policy, args.ledger, calls=calls)
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    try:
+        rendered = render_report(_audit_report_from_args(args), args.format)
+    except (AuditError, OSError, ValueError) as exc:
+        print(f"probe report: 输入错误：{exc}", file=sys.stderr)
+        return 2
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        try:
+            Path(args.output).write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            print(f"probe report: 无法写入输出：{exc}", file=sys.stderr)
+            return 2
+    return 0
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    try:
+        view = explain_event(_audit_report_from_args(args), args.event_id)
+        import json
+        print(json.dumps(view, ensure_ascii=False, sort_keys=True, indent=2))
+    except (AuditError, OSError, ValueError) as exc:
+        print(f"probe explain: 输入错误：{exc}", file=sys.stderr)
+        return 2
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +113,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="以稳定 JSON（schema_version=1）输出，便于机器解析",
     )
     doctor_parser.set_defaults(handler=_cmd_doctor)
+    report_parser = subparsers.add_parser("report", help="从权威账本重算 M4 审计报告")
+    report_parser.add_argument("--policy", required=True, help="M4 YAML 规则文件")
+    report_parser.add_argument("--ledger", required=True, help="M2 权威 JSONL 账本")
+    report_parser.add_argument("--calls", help="可选的版本化 calls artifact JSON")
+    report_parser.add_argument("--format", choices=("text", "json", "html"), default="text")
+    report_parser.add_argument("--output", help="输出文件；默认标准输出")
+    report_parser.set_defaults(handler=_cmd_report)
+    explain_parser = subparsers.add_parser("explain", help="从原始账本回溯一个事件的审计证据")
+    explain_parser.add_argument("event_id", help="要解释的原始 event ID")
+    explain_parser.add_argument("--policy", required=True, help="M4 YAML 规则文件")
+    explain_parser.add_argument("--ledger", required=True, help="M2 权威 JSONL 账本")
+    explain_parser.add_argument("--calls", help="可选的版本化 calls artifact JSON")
+    explain_parser.set_defaults(handler=_cmd_explain)
     return parser
 
 

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -22,6 +23,7 @@ from agent_probe.doctor import (
     STATUSES,
     CheckResult,
     DoctorReport,
+    PathInfo,
     Uname,
 )
 from fake_host import command, make_darwin_host, make_linux_host
@@ -167,6 +169,25 @@ def test_fentry_without_available_filter_functions_fails() -> None:
     assert check.status == "fail"
     assert "available_filter_functions" in check.summary
     assert report.exit_code == EXIT_REQUIRED_FAILED
+
+
+def test_fentry_accepts_readable_tracefs_pseudofile_with_zero_stat_size() -> None:
+    """tracefs 文件可读时 st_size 可以为 0，不能据此误判 ftrace 缺失。"""
+    host = make_linux_host()
+    host.set_file("/sys/kernel/tracing/available_filter_functions", "vfs_read\n")
+    original_inspect = host.inspect
+
+    def _inspect(path: str):  # noqa: ANN202
+        info = original_inspect(path)
+        if path.endswith("/available_filter_functions"):
+            return replace(info, size=0)
+        return info
+
+    host.inspect = _inspect  # type: ignore[method-assign]
+    check = by_id(collect(host))["kernel.fentry_fexit"]
+    assert check.status == "pass"
+    assert check.evidence["available_filter_functions_bytes"] == 0
+    assert check.evidence["available_filter_functions_sample_bytes"] == 1
 
 
 # --------------------------------------------------------------------------------------

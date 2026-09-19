@@ -71,6 +71,8 @@ Thumbs.db
 *.db-shm
 *.db-journal
 probe-report.html
+# Local conversational-session exports may contain private prompts and machine context.
+pi-session-*.html
 # 但测试夹具、文档示例与回放数据属于可复现材料，必须入库。
 !tests/**/*.jsonl
 !fixtures/**/*.jsonl

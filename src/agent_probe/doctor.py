@@ -616,7 +616,10 @@ def _check_fentry_fexit(host: Host) -> _Outcome:
     btf_info = host.inspect(_VMLINUX_BTF)
     btf_ok = btf_info.exists and btf_info.readable and (btf_info.size or 0) > 0
     filter_path, filter_size = _first_readable(host, _FILTER_FUNCTIONS_CANDIDATES)
-    ftrace_ok = bool(filter_size)
+    # tracefs 的伪文件常报告 st_size=0；不能把它当作空内容或 ftrace 不可用。
+    # 用有界读取确认该文件实际可消费，保留 stat 大小仅作诊断证据。
+    filter_sample = None if filter_path is None else host.read_bytes(filter_path, max_bytes=1)
+    ftrace_ok = bool(filter_sample)
     config, config_source = _kernel_config(host)
 
     clues: dict[str, bool] = {
@@ -633,6 +636,7 @@ def _check_fentry_fexit(host: Host) -> _Outcome:
         "missing_clues": missing,
         "available_filter_functions": filter_path,
         "available_filter_functions_bytes": filter_size,
+        "available_filter_functions_sample_bytes": None if filter_sample is None else len(filter_sample),
         "vmlinux_btf_bytes": btf_info.size,
         "kernel_config_source": config_source,
         "note": (

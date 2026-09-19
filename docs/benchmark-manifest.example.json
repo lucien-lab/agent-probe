@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "execution_status": "planned",
+  "warning": "这是未执行的填写模板；null、planned 或占位路径均不是实验结果，不能用于验收声明。",
+  "requirements": {
+    "unique_real_task_ids": 20,
+    "real_agents": 2,
+    "tasks_per_agent": 10,
+    "repetitions_per_agent_task": 3,
+    "comparison_arms": ["application_logs", "external_only", "external_with_markers"],
+    "anomaly_categories": ["subprocess", "container", "concurrency_2_and_5", "temporary_file_replacement", "retry", "stream_interruption", "overload", "out_of_bounds"],
+    "ablation_stages": ["time_window", "process_lineage", "container_mapping", "auxiliary_markers"],
+    "performance_profiles": ["no_probe", "system_probe", "system_probe_tls", "full_audit", "control_enabled"]
+  },
+  "agents": [
+    {"agent_id": "agent-a", "task_slots": ["task-01", "task-02", "task-03", "task-04", "task-05", "task-06", "task-07", "task-08", "task-09", "task-10"]},
+    {"agent_id": "agent-b", "task_slots": ["task-11", "task-12", "task-13", "task-14", "task-15", "task-16", "task-17", "task-18", "task-19", "task-20"]}
+  ],
+  "run_record_template": {
+    "task_id": "task-01",
+    "agent_id": "agent-a",
+    "repetition": 1,
+    "kind": "real_task",
+    "is_real_agent": true,
+    "outcome_recorded": false,
+    "input_digest": null,
+    "environment_id": null,
+    "policy_id": null,
+    "model_config_id": null,
+    "missing_inputs": ["input_digest", "environment_id", "policy_id", "model_config_id"],
+    "truth_source": null,
+    "comparison_results": {"application_logs": null, "external_only": null, "external_with_markers": null},
+    "artifact_paths": {"input": null, "raw_events": null, "truth": null, "result": null, "failure": null},
+    "cost": {"currency": null, "actual_billed_amount": null, "estimate_amount": null, "pricing_source": null},
+    "notes": "填写实际值；失败、超时或中止也必须有 outcome 和证据路径。"
+  },
+  "anomaly_record_template": {
+    "anomaly_id": "subprocess-01",
+    "category": "subprocess",
+    "injection_steps_path": null,
+    "expected_semantic_events_path": null,
+    "verification_evidence_path": null,
+    "actual_outcome": null
+  },
+  "performance_record_template": {
+    "profile": "no_probe",
+    "workload_kind": "local_fixed",
+    "repetition": 1,
+    "elapsed_ms": null,
+    "cpu_time_ms": null,
+    "peak_memory_bytes": null,
+    "load_parameters_path": null,
+    "loss_count": null
+  },
+  "reproducibility": {
+    "repository_revision": null,
+    "vm_image_digest": null,
+    "kernel_release": null,
+    "package_inventory_path": null,
+    "doctor_json_path": null,
+    "license_inventory_path": null
+  }
+}

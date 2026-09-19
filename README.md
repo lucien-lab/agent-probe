@@ -1,183 +1,196 @@
 # agent-probe
 
-为 Coding Agent 提供**独立于应用日志**的系统审计、可解释的行为关联与受限执行控制：
-回答“任务动了哪些文件、连了哪些网络、消耗了多少 token、是否违反策略，以及这些结论有多可靠”。
+`agent-probe` is a Linux-oriented observability and policy-analysis toolkit for coding agents. It turns low-level execution evidence into an auditable record of what an agent attempted, what actually happened, how activity was attributed, and whether a declared policy was satisfied.
 
-> ## 当前状态：M0 能力检测 + M1/M2/M3 库层已落地（未接入 CLI，无采集能力）
->
-> 仓库目前有：可安装的 src-layout 包、基于 `argparse` 的 CLI 入口、
-> **`probe doctor` 的只读环境能力检测**（M0）、
-> **`agent_probe.llm` 的 HTTP/1.1 流量重建与计账库**（M1，纯 Python）、
-> **`agent_probe.events` 的事件模型与可靠账本库**（M2，纯 Python）、
-> **`agent_probe.correlate` 的可解释关联引擎**（M3，纯 Python，含两种关联模式与证据图）、
-> **`agent_probe.container` 的 Docker 任务映射库**（M3，纯 Python，查询接口可注入）、
-> pytest 配置与行为测试。
->
-> M1/M2/M3 目前**只提供库 API，尚未在 `probe` CLI 中注册任何子命令**：
-> 它们接收的仍是对内存字节夹具与合成事件流的离线输入，不包含 TLS uprobe/eBPF 采集，
-> 也不执行任何真实 `docker` 查询（容器映射由可注入的 `ContainerQuery` 提供，测试用 fake）。
-> 因此 `plan.md` 中 M1 的“真实流量捕获率/usage 一致率”、M2 的
-> “30 类操作夹具 + strace/auditd 交叉验证”与 M3 的“≥200 条带独立预期关系的样本”
-> 等**出口验收项尚未达成**，相关指标一律不得引用本仓库当前状态作为已验证结果。
->
-> - `probe --version` 输出包版本。
-> - `probe doctor [--json]` 检查 Linux/ARM64、BTF、tracefs、`sched_process_exec` tracepoint、
->   fentry/fexit 线索、BPF LSM、工具链（clang/bpftool/pkg-config/libbpf）、Python/OpenSSL 与 Docker。
->   结构化输出 + 明确退出码；**只读**，不安装软件、不修改系统配置；非 Linux 主机会给出
->   `unsupported` 结果而不是报错（因此 macOS 上退出码非零是预期结果）。
->
-> 尚未实现：eBPF 探针与 TLS 采集、审计规则与报告（M4）、
-> 受限执行控制（M5）、对照与消融实验（M6）、Docker 镜像与 CI。
-> 完整计划见 [`plan.md`](plan.md)；环境基线、退出码与 M0 验收证据清单见
-> [`docs/00-env.md`](docs/00-env.md)；M1 库契约见 [`docs/01-llm.md`](docs/01-llm.md)；
-> M2 故障与一致性语义见 [`docs/02-event-ledger.md`](docs/02-event-ledger.md)；
-> M3 关联语义见 [`docs/03-correlation.md`](docs/03-correlation.md)；
-> M3 容器映射见 [`docs/03b-container-mapping.md`](docs/03b-container-mapping.md)。
+The project is designed around a simple rule: **unknown is not success**. Missing usage, incomplete capture, ambiguous attribution, and unsupported control paths remain visible in reports instead of being silently converted into a pass.
 
-### `probe doctor` 速览
+## Why agent-probe
+
+Application logs are useful, but they are controlled by the application being observed. `agent-probe` provides an independent analysis path for questions such as:
+
+- Which files were actually read or modified during a task?
+- Which destinations were contacted and which model calls consumed tokens?
+- What evidence connects a system event to a task, tool, or model call?
+- Did a task exceed a filesystem, sensitive-data, network, or cost policy?
+- Is a conclusion a fact, an inference, or insufficiently evidenced?
+
+The architecture separates collection, immutable-style event records, correlation, policy evaluation, and enforcement planning. This keeps a report reproducible from its source artifacts and makes uncertainty inspectable.
+
+## Current capabilities
+
+The repository contains a tested Python core and a minimal native BPF LSM attach probe:
+
+| Area | Delivered capability |
+| --- | --- |
+| Environment discovery | `probe doctor` performs read-only checks for Linux, BTF, tracefs, tracepoints, BPF LSM, toolchain, Python/OpenSSL, and Docker prerequisites. |
+| LLM accounting | Offline HTTP/1.1 framing, chunked/gzip/SSE parsing, usage-state handling, retry registration, and versioned `Decimal` pricing. |
+| Event ledger | Versioned event model, append-only JSONL authority, rebuildable SQLite index, replay, sequencing, and loss accounting. |
+| Attribution | Evidence graphs, external and assisted correlation modes, confidence/ambiguity propagation, and Docker task-to-host mapping abstractions. |
+| Audit reports | Restricted YAML rules, deterministic findings, recomputable summaries, evidence explanation, and text/JSON/self-contained HTML output. |
+| Enforcement model | Explicit audit/enforce semantics, protected-directory decisions, operation support matrix, and documented blind spots. |
+| Evaluation toolkit | Classification metrics, Wilson intervals, performance summaries, and reproducible experiment-manifest validation. |
+| Native validation | A small CO-RE/libbpf program verifies that an available BPF LSM hook can attach and detach cleanly without enforcing a policy. |
+
+The collection pipeline is intentionally not overstated: there is no production TLS uprobe collector, kernel event collector, or BPF LSM policy loader yet. The native probe proves attachability only; the Python enforcement model does not block filesystem operations. See [Scope and security boundary](#scope-and-security-boundary) for the implications.
+
+## Architecture
+
+```text
+collection sources (planned)                 offline inputs (available)
+TLS probes / kernel events / adapters  -->   calls artifacts + JSONL ledger
+                                                    |
+                                                    v
+                    event validation, replay, loss accounting, SQLite index
+                                                    |
+                                                    v
+        correlation graph <--- process / task / container / assisted markers
+                                                    |
+                                                    v
+      YAML policy ---> deterministic audit findings ---> report / explain / HTML
+                                                    |
+                                                    v
+                         enforcement support analysis and BPF attach validation
+```
+
+The source-of-truth format is the M2 JSONL ledger. Reports are reconstructed from the original ledger, policy, and optional calls artifact rather than from a cached aggregate.
+
+## Quick start
+
+Requirements: Python 3.11+ for the Python components. The native BPF probe additionally needs Linux, BTF, clang, libbpf, libelf, and kernel headers.
 
 ```bash
-probe doctor            # 人类可读报告（每项含 id/status/summary/evidence）
-probe doctor --json     # 稳定 JSON（schema_version = 1）
+# Editable local install; suitable for an already-provisioned environment.
+python -m pip install --no-build-isolation --no-deps -e .
+
+# Run the test suite.
+python -m pytest -q
+
+# Inspect the host without changing it.
+probe doctor
+probe doctor --json
 ```
 
-状态语义：`pass`（线索满足） / `warn`（线索不完整，不阻塞） / `fail`（硬性前提缺失） /
-`unsupported`（当前主机不适用）。退出码：`0` 必需项通过、`1` 必需项失败、
-`2` 主机不受支持、`3` doctor 自身出错。BTF 可读**不代表**其它挂点可用，
-`pass` 也不代表已完成实际 attach/阻断验证。
-
-## 目标平台
-
-- **采集目标：Linux（ARM64 为主，QEMU + 固定 Ubuntu 环境）**，依赖 eBPF：libbpf + CO-RE、
-  uprobe/tracepoint、fentry/fexit、BPF LSM。挂点可用性需在 M0 实测确认，不做未经验证的承诺。
-- macOS/Windows **仅作为 Linux VM 宿主**，不提供原生采集。
-- `probe doctor` 在 macOS 上返回 `unsupported`（退出码 2）属于**预期正确结果**：
-  当前开发机只是 VM 宿主，本仓库尚未在 Linux 中验证任何挂点或 LSM 阻断。
-
-## 目录结构
-
-```
-.
-├── plan.md                    # 四个月实施计划（勿在本任务中修改）
-├── pyproject.toml             # setuptools 构建、probe 入口、pytest 配置
-├── README.md
-├── .gitignore
-├── docs/
-│   ├── 00-env.md              # M0 环境基线、doctor 契约与验收证据清单
-│   ├── 01-llm.md              # M1 协议重建/usage/计价 API、上限与隐私默认值
-│   ├── 02-event-ledger.md     # M2 事件模型、账本一致性、故障与重建语义
-│   ├── 03-correlation.md      # M3 证据图、两种关联模式、置信度/歧义与消融
-│   ├── 03b-container-mapping.md # M3 容器映射、竞态语义、挂载视图与真值边界
-│   └── delegation-progress.md
-├── scripts/
-│   └── setup-vm.sh            # 幂等环境脚本（--check-only / --apply）
-├── src/
-│   └── agent_probe/
-│       ├── __init__.py        # 包元信息（__version__ 为版本单一来源）
-│       ├── __main__.py        # python -m agent_probe 入口
-│       ├── cli.py             # argparse CLI：--version 与 doctor
-│       ├── doctor.py          # M0 只读能力检测（可注入 Host，结构化输出）
-│       ├── llm/               # M1 HTTP/1.1 重建、SSE、usage、Decimal 计价、重试登记
-│       ├── events/            # M2 事件模型、JSONL 账本、SQLite 派生索引、重放
-│       ├── correlate/         # M3 证据图、外部/辅助关联模式、置信度与消融
-│       └── container/         # M3 标签→容器→宿主 PID/cgroup→挂载视图映射
-└── tests/
-    ├── conftest.py            # 共享夹具（子进程运行 CLI）
-    ├── fake_host.py           # 内存 Host：构造 Linux 能力矩阵，不依赖宿主平台
-    ├── test_cli.py            # CLI 行为测试
-    ├── test_doctor.py         # doctor 检查/JSON schema/退出码测试
-    ├── test_package.py        # 包与 python -m 行为测试
-    ├── llm/                   # M1 确定性字节夹具与回放测试（零网络）
-    ├── events/                # M2 账本/索引/重放测试（tmp_path，不污染仓库）
-    ├── correlate/             # M3 合成事件流与并发/血缘/消融测试
-    └── container/            # M3 映射测试（fake ContainerQuery，不调用真实 docker）
-```
-
-## 开发环境与最小命令
-
-Python >= 3.11，包名 `agent_probe`，命令名 `probe`。以下命令以 conda 环境为例
-（把 `<env>` 替换为本地环境名，本仓库开发时使用 `ms_pointcloud_midterm`）：
+For development with Conda:
 
 ```bash
-# 推荐：离线/本地可编辑安装（不创建隔离构建环境、不解析依赖）
-# 前提：当前环境已装有满足 pyproject.toml 中 [build-system] requires 的 setuptools
-#       （本项目实测 pip 26.1.2 + setuptools 83.0.0；下限为 setuptools 64）
-conda run -n <env> python -m pip install --no-build-isolation --no-deps -e .
-
-# 运行测试
-conda run -n <env> python -m pytest -q
-
-# 版本与能力自检
-conda run -n <env> python -m agent_probe --version
-conda run -n <env> python -m agent_probe doctor --json
-
-# （在仓库根目录、未安装时）可直接用源码运行：
-PYTHONPATH=src conda run -n <env> python -m agent_probe doctor
+conda run -n ms_pointcloud_midterm python -m pip install --no-build-isolation --no-deps -e .
+conda run -n ms_pointcloud_midterm python -m pytest -q
 ```
 
-### 环境脚本（不在自动验证中执行安装）
+`probe doctor` is read-only. On macOS and Windows it returns `unsupported`, because those systems are expected to host a Linux VM rather than run the collector directly.
+
+## Reporting and explanation
+
+Audit reports accept a policy, an authoritative JSONL event ledger, and optionally a versioned calls artifact:
 
 ```bash
-bash scripts/setup-vm.sh                # 只打印计划与影响（退出码 2，不修改任何东西）
-bash scripts/setup-vm.sh --check-only   # 只读检查宿主/VM 是否满足固定清单
-bash scripts/setup-vm.sh --apply        # 显式安装（幂等）；由人工在确认后运行
+probe report \
+  --policy /path/to/policy.yaml \
+  --ledger /path/to/events.jsonl \
+  --calls /path/to/calls.json \
+  --format html \
+  --output report.html
+
+probe explain EVENT_ID \
+  --policy /path/to/policy.yaml \
+  --ledger /path/to/events.jsonl \
+  --calls /path/to/calls.json
 ```
 
-固定目标：Ubuntu 24.04.4 LTS（noble）arm64 + 包清单见脚本内常量，
-版本矩阵、权限影响、QEMU/VM 边界与 M0 证据清单见 [`docs/00-env.md`](docs/00-env.md)。
+`probe report` supports `text`, `json`, and standalone `html` renderers. `probe explain` follows a finding back to the underlying raw event and records whether the result is a verified violation, a pass, or insufficient evidence.
 
-未执行可编辑安装时也能直接运行测试：`pyproject.toml` 中的
-`[tool.pytest.ini_options] pythonpath = ["src"]` 会把 `src/` 加入导入路径。
+The restricted YAML policy format supports four rule families:
 
-### 关于 `--no-deps` 与构建隔离（易误判）
+- forbidden filesystem modifications;
+- actual reads of sensitive paths;
+- destination allow-lists for network activity; and
+- estimated-cost limits.
 
-- `--no-deps` **只**跳过 `[project.dependencies]` / extras 的解析与安装，
-  **不会**阻止 pip 为 `[build-system] requires`（即 setuptools）创建隔离构建环境并从索引下载。
-  因此单独使用 `pip install --no-deps -e .` 在无网络环境下仍会失败。
-- 完全离线必须显式加上 `--no-build-isolation`，它让 pip 直接使用当前环境已有的 setuptools，
-  不下载任何东西。前提条件是环境中的 setuptools 版本满足 `requires = ["setuptools>=64"]`；
-  若环境过旧，pip 会直接报错，此时应先离线升级 setuptools。
-- 需要 dev 依赖且允许联网时，可使用常规命令：
-  `conda run -n <env> python -m pip install -e '.[dev]'`。
+Rules evaluate observed outcomes, not merely syscall attempts. For example, an unsuccessful write attempt does not prove a modification, and absent token usage cannot prove a cost limit was respected.
 
-## 约定
+Detailed rule, report, and rendering semantics are in [docs/04-audit.md](docs/04-audit.md).
 
-- src-layout；源码位于 `src/agent_probe/`，测试位于 `tests/`，两者不混放。
-- **不实现即不注册**：CLI 只暴露已实现的子命令，未实现的能力不得提供看似可用的入口。
-- doctor 的检查逻辑必须通过 `Host` 协议访问系统，测试用 `tests/fake_host.py` 构造能力矩阵，
-  不得依赖运行测试的宿主平台。
-- 运行时依赖为空（`dependencies = []`）。新增依赖需说明其解决的具体问题、
-  维护成本与可验证收益（见 `plan.md` 第 7 节）；Linux 侧工具链（libbpf、clang、bpftool）
-  属于系统依赖，不通过 Python 包安装。
-- 不修改 `plan.md` 中的计划口径；实现与计划有偏差时记录在文档中，而不是调整指标。
+## Native BPF LSM attach probe
 
-## 后续任务边界
+The attach probe is deliberately small and safe: its `file_permission` hook always returns `0`, attaches, then immediately detaches. It verifies an important environment prerequisite without installing a persistent policy.
 
-按 `plan.md` 的 M0–M6 顺序推进。
+```bash
+scripts/build-lsm-attach-probe.sh
+sudo bpf/lsm_attach_probe/lsm_attach_probe
+```
 
-**已完成（库层）**
+Running the second command requires elevated privileges and loads a short-lived BPF program, so it should be performed only on an intended Linux test VM. Build and cleanup details are documented in [docs/05-bpf-lsm-attach-probe.md](docs/05-bpf-lsm-attach-probe.md).
 
-- M0 只读环境能力检测：`probe doctor` + `scripts/setup-vm.sh` + `docs/00-env.md`。
-- M1 离线协议核心：`agent_probe.llm` + `docs/01-llm.md`（JSON/SSE/chunked/gzip 重建、
-  usage 四态、Decimal 版本化计价、显式重试登记、默认脱敏）。
-- M2 离线账本核心：`agent_probe.events` + `docs/02-event-ledger.md`（事件模型、
-  JSONL 权威账本、可重建 SQLite 索引、丢失计数、离线重放与一致性校验）。
-- M3 离线关联核心：`agent_probe.correlate` + `docs/03-correlation.md`（证据图、
-  外部/辅助两种模式、置信度与歧义、消融开关、序列化与 explain）。
-- M3 离线容器映射：`agent_probe.container` + `docs/03b-container-mapping.md`
-  （可注入 `ContainerQuery`、四种 outcome、挂载视图与目录边界语义）。
+## Repository layout
 
-**仍未完成（不得声称已完成的出口项）**
+```text
+src/agent_probe/
+  audit/          Policy loading, evaluation, findings, reporting, rendering
+  container/      Docker task/container/PID/cgroup/mount-view mapping contracts
+  correlate/      Evidence graph and attribution algorithms
+  enforce/        Filesystem-control model and support matrix
+  events/         Event schema, ledger, index, replay, consistency checks
+  evaluation/     Metrics, intervals, performance summaries, manifests
+  llm/            HTTP/SSE reconstruction, usage, retries, pricing
+  doctor.py       Read-only environment capability discovery
+bpf/              CO-RE/libbpf BPF LSM attach probe
+docs/             Design contracts, operating procedures, evaluation guidance
+tests/            Deterministic unit and integration tests
+scripts/          VM setup and native-probe build helpers
+plan.md           Milestone plan and acceptance criteria
+```
 
-- M0 **VM 内实测**：Linux 挂点实际 attach、BPF LSM 启用与阻断验证、真实 TLS 调用点定位、
-  本地 TLS 测试服务与无探针性能基线。在完成这些实测前，不得声称任何挂点已验证可用。
-- M1 **真实流量验证**：≥200 个受控请求的捕获率/解析成功率/usage 一致率报告，
-  以及 `probe` CLI 的计账输出（当前库未接入 CLI，也未接触真实 TLS 字节）。
-- M2 **系统事件真值**：≥30 类操作夹具 + strace/auditd 交叉验证、30 分钟额定负载与
-  过载丢失可检测性、eBPF 探针侧采集（当前只有用户态账本，无任何采集源）。
-- M3 **真实样本评估**：≥200 条带独立预期关系的样本（串行/2、5 路并发/子进程/容器）、
-  真实 Docker 标签映射与短命容器竞态实测、辅助标记适配器接入两个真实 agent。
-  当前只有合成事件流与 fake `ContainerQuery`，未接触真实 docker 或真实 agent。
+## Development and verification
 
-库 API 的契约与限制以 `docs/01-llm.md`、`docs/02-event-ledger.md` 为准；
-两者都明确列出了**不支持的协议/路径**，不得外推为通用兼容性承诺。
+The project uses a `src/` layout and pytest. Tests use deterministic byte fixtures, in-memory host abstractions, fake container queries, and temporary artifacts; they do not require Docker, a network connection, or root access.
+
+```bash
+conda run -n ms_pointcloud_midterm python -m pytest -q
+conda run -n ms_pointcloud_midterm python -m agent_probe --version
+conda run -n ms_pointcloud_midterm python -m agent_probe doctor --json
+```
+
+The VM setup script makes its impact explicit:
+
+```bash
+bash scripts/setup-vm.sh              # print planned changes only
+bash scripts/setup-vm.sh --check-only # read-only prerequisite check
+bash scripts/setup-vm.sh --apply      # explicit package/configuration changes
+```
+
+Before adding a runtime dependency, document the operational problem it solves, its maintenance cost, and the verification it enables. Python runtime dependencies are intentionally empty; native tooling remains an operating-system concern.
+
+## Scope and security boundary
+
+`agent-probe` currently provides offline analysis primitives, not a complete sandbox or universally deployable monitoring agent.
+
+- The trusted computing base includes the host kernel, root, and the collector administrator. Root or kernel compromise is out of scope.
+- HTTP/2, HTTP/3, static TLS, and unknown provider payloads are not supported by the current LLM reconstruction core.
+- `mmap`, `io_uring`, inherited file descriptors, symlink/hard-link edge cases, and container mount views are not covered by a complete kernel enforcement implementation.
+- Network and cost policy are reporting controls, not network-level blocking or billing guarantees.
+- Existing metrics and experiment-manifest support are evaluation infrastructure. They are not a substitute for the planned real-agent benchmark runs.
+
+The implementation plan, acceptance criteria, and non-goals are maintained in [plan.md](plan.md). The most relevant design documents are:
+
+- [Environment and doctor contract](docs/00-env.md)
+- [LLM reconstruction and accounting](docs/01-llm.md)
+- [Event ledger semantics](docs/02-event-ledger.md)
+- [Correlation and container mapping](docs/03-correlation.md)
+- [Audit policy and report model](docs/04-audit.md)
+- [Enforcement model and BPF validation](docs/05-enforcement.md)
+- [Evaluation protocol](docs/evaluation.md)
+
+## Contributing
+
+Contributions should preserve the project’s evidence model:
+
+1. Add deterministic tests for a normal outcome, a policy violation or error path, and insufficient evidence where relevant.
+2. Keep facts, inferences, and unavailable data distinct in schemas and reports.
+3. Do not expose a CLI command as operational unless its underlying behavior is implemented and tested.
+4. Document platform assumptions, privilege requirements, collection gaps, and cleanup behavior for native code.
+
+Please open an issue before proposing a broad collector or policy-engine integration so that event semantics and compatibility boundaries can be agreed first.
+
+## License
+
+This repository does not yet include a license file. Until a license is added by the project owner, all rights are reserved and external redistribution is not granted.

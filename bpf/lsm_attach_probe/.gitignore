@@ -1,0 +1,3 @@
+/lsm_attach_probe
+/lsm_attach_probe.bpf.o
+/vmlinux.h
