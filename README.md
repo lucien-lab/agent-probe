@@ -1,5 +1,10 @@
 # agent-probe
 
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black)](https://kernel.org/)
+[![eBPF](https://img.shields.io/badge/eBPF-CO--RE-00599C)](https://docs.kernel.org/bpf/)
+[![Status](https://img.shields.io/badge/Status-Pre--alpha-orange)](https://github.com/lucien-lab/agent-probe)
+
 `agent-probe` is a Linux-oriented observability and policy-analysis toolkit for coding agents. It turns low-level execution evidence into an auditable record of what an agent attempted, what actually happened, how activity was attributed, and whether a declared policy was satisfied.
 
 The project is designed around a simple rule: **unknown is not success**. Missing usage, incomplete capture, ambiguous attribution, and unsupported control paths remain visible in reports instead of being silently converted into a pass.
