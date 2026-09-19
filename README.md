@@ -3,10 +3,19 @@
 为 Coding Agent 提供**独立于应用日志**的系统审计、可解释的行为关联与受限执行控制：
 回答“任务动了哪些文件、连了哪些网络、消耗了多少 token、是否违反策略，以及这些结论有多可靠”。
 
-> ## 当前状态：M0 早期（只读能力检测可用，采集功能未实现）
+> ## 当前状态：M0 能力检测 + M1/M2 库层已落地（未接入 CLI，无采集能力）
 >
 > 仓库目前有：可安装的 src-layout 包、基于 `argparse` 的 CLI 入口、
-> **`probe doctor` 的只读环境能力检测**（M0）、pytest 配置与行为测试。
+> **`probe doctor` 的只读环境能力检测**（M0）、
+> **`agent_probe.llm` 的 HTTP/1.1 流量重建与计账库**（M1，纯 Python）、
+> **`agent_probe.events` 的事件模型与可靠账本库**（M2，纯 Python）、
+> pytest 配置与行为测试。
+>
+> M1/M2 目前**只提供库 API，尚未在 `probe` CLI 中注册任何子命令**：
+> 它们接收的仍是对内存字节夹具的离线输入，不包含 TLS uprobe/eBPF 采集。
+> 因此 `plan.md` 中 M1 的“真实流量捕获率/usage 一致率”和 M2 的
+> “30 类操作夹具 + strace/auditd 交叉验证”等**出口验收项尚未达成**，
+> 相关指标一律不得引用本仓库当前状态作为已验证结果。
 >
 > - `probe --version` 输出包版本。
 > - `probe doctor [--json]` 检查 Linux/ARM64、BTF、tracefs、`sched_process_exec` tracepoint、
@@ -14,10 +23,11 @@
 >   结构化输出 + 明确退出码；**只读**，不安装软件、不修改系统配置；非 Linux 主机会给出
 >   `unsupported` 结果而不是报错（因此 macOS 上退出码非零是预期结果）。
 >
-> 尚未实现：eBPF 探针、TLS/HTTP 协议重建、事件模型与事件账本、存储与索引、
-> 关联引擎、审计规则与报告、Docker 映射、执行控制、Docker 镜像与 CI。
-> 完整计划见 [`plan.md`](plan.md)，环境基线、退出码与 M0 验收证据清单见
-> [`docs/00-env.md`](docs/00-env.md)。
+> 尚未实现：eBPF 探针与 TLS 采集、Docker 映射、关联引擎、审计规则与报告、
+> 执行控制、Docker 镜像与 CI。
+> 完整计划见 [`plan.md`](plan.md)；环境基线、退出码与 M0 验收证据清单见
+> [`docs/00-env.md`](docs/00-env.md)；M1 库契约见 [`docs/01-llm.md`](docs/01-llm.md)；
+> M2 故障与一致性语义见 [`docs/02-event-ledger.md`](docs/02-event-ledger.md)。
 
 ### `probe doctor` 速览
 
@@ -49,6 +59,8 @@ probe doctor --json     # 稳定 JSON（schema_version = 1）
 ├── .gitignore
 ├── docs/
 │   ├── 00-env.md              # M0 环境基线、doctor 契约与验收证据清单
+│   ├── 01-llm.md              # M1 协议重建/usage/计价 API、上限与隐私默认值
+│   ├── 02-event-ledger.md     # M2 事件模型、账本一致性、故障与重建语义
 │   └── delegation-progress.md
 ├── scripts/
 │   └── setup-vm.sh            # 幂等环境脚本（--check-only / --apply）
@@ -57,13 +69,17 @@ probe doctor --json     # 稳定 JSON（schema_version = 1）
 │       ├── __init__.py        # 包元信息（__version__ 为版本单一来源）
 │       ├── __main__.py        # python -m agent_probe 入口
 │       ├── cli.py             # argparse CLI：--version 与 doctor
-│       └── doctor.py          # M0 只读能力检测（可注入 Host，结构化输出）
+│       ├── doctor.py          # M0 只读能力检测（可注入 Host，结构化输出）
+│       ├── llm/               # M1 HTTP/1.1 重建、SSE、usage、Decimal 计价、重试登记
+│       └── events/            # M2 事件模型、JSONL 账本、SQLite 派生索引、重放
 └── tests/
     ├── conftest.py            # 共享夹具（子进程运行 CLI）
     ├── fake_host.py           # 内存 Host：构造 Linux 能力矩阵，不依赖宿主平台
     ├── test_cli.py            # CLI 行为测试
     ├── test_doctor.py         # doctor 检查/JSON schema/退出码测试
-    └── test_package.py        # 包与 python -m 行为测试
+    ├── test_package.py        # 包与 python -m 行为测试
+    ├── llm/                   # M1 确定性字节夹具与回放测试（零网络）
+    └── events/                # M2 账本/索引/重放测试（tmp_path，不污染仓库）
 ```
 
 ## 开发环境与最小命令
@@ -126,7 +142,24 @@ bash scripts/setup-vm.sh --apply        # 显式安装（幂等）；由人工�
 
 ## 后续任务边界
 
-按 `plan.md` 的 M0–M6 顺序推进。当前已完成 M0 的只读环境能力检测
-（`probe doctor` + `scripts/setup-vm.sh` + `docs/00-env.md`）；M0 仍未完成的是
-**VM 内实测**：Linux 挂点实际 attach、BPF LSM 启用与阻断验证、真实 TLS 调用点定位、
-本地 TLS 测试服务与无探针性能基线。在完成这些实测前，不得声称任何挂点已验证可用。
+按 `plan.md` 的 M0–M6 顺序推进。
+
+**已完成（库层）**
+
+- M0 只读环境能力检测：`probe doctor` + `scripts/setup-vm.sh` + `docs/00-env.md`。
+- M1 离线协议核心：`agent_probe.llm` + `docs/01-llm.md`（JSON/SSE/chunked/gzip 重建、
+  usage 四态、Decimal 版本化计价、显式重试登记、默认脱敏）。
+- M2 离线账本核心：`agent_probe.events` + `docs/02-event-ledger.md`（事件模型、
+  JSONL 权威账本、可重建 SQLite 索引、丢失计数、离线重放与一致性校验）。
+
+**仍未完成（不得声称已完成的出口项）**
+
+- M0 **VM 内实测**：Linux 挂点实际 attach、BPF LSM 启用与阻断验证、真实 TLS 调用点定位、
+  本地 TLS 测试服务与无探针性能基线。在完成这些实测前，不得声称任何挂点已验证可用。
+- M1 **真实流量验证**：≥200 个受控请求的捕获率/解析成功率/usage 一致率报告，
+  以及 `probe` CLI 的计账输出（当前库未接入 CLI，也未接触真实 TLS 字节）。
+- M2 **系统事件真值**：≥30 类操作夹具 + strace/auditd 交叉验证、30 分钟额定负载与
+  过载丢失可检测性、eBPF 探针侧采集（当前只有用户态账本，无任何采集源）。
+
+库 API 的契约与限制以 `docs/01-llm.md`、`docs/02-event-ledger.md` 为准；
+两者都明确列出了**不支持的协议/路径**，不得外推为通用兼容性承诺。

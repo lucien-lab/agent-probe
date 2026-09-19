@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-probe"
-description = "Coding Agent 的系统审计、可解释行为关联与受限执行控制（当前为工程骨架）。"
+description = "Coding Agent 的系统审计、可解释行为关联与受限执行控制（M0 能力检测 + M1/M2 库层，采集与关联未实现）。"
 readme = "README.md"
 requires-python = ">=3.11"
 # 版本单一来源：src/agent_probe/__init__.py 中的 __version__。
