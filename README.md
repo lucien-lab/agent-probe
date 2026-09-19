@@ -5,88 +5,88 @@
 [![eBPF](https://img.shields.io/badge/eBPF-CO--RE-00599C)](https://docs.kernel.org/bpf/)
 [![Status](https://img.shields.io/badge/Status-Pre--alpha-orange)](https://github.com/lucien-lab/agent-probe)
 
-`agent-probe` is a Linux-oriented observability and policy-analysis toolkit for coding agents. It turns low-level execution evidence into an auditable record of what an agent attempted, what actually happened, how activity was attributed, and whether a declared policy was satisfied.
+`agent-probe` 是面向 Coding Agent 的 Linux 可观测性与策略分析工具集。它将低层执行证据组织为可审计记录，回答 Agent 尝试了什么、实际发生了什么、行为如何归因，以及是否满足既定策略。
 
-The project is designed around a simple rule: **unknown is not success**. Missing usage, incomplete capture, ambiguous attribution, and unsupported control paths remain visible in reports instead of being silently converted into a pass.
+项目遵循一条原则：**未知不等于通过**。缺失的 usage、未完整采集的数据、歧义归因和不支持的控制路径会被保留在报告中，而不会被悄然转为“正常”。
 
-## Why agent-probe
+## 为什么需要 agent-probe
 
-Application logs are useful, but they are controlled by the application being observed. `agent-probe` provides an independent analysis path for questions such as:
+应用日志很有价值，但它由被观测的应用自身控制。`agent-probe` 提供独立的分析路径，可用于回答：
 
-- Which files were actually read or modified during a task?
-- Which destinations were contacted and which model calls consumed tokens?
-- What evidence connects a system event to a task, tool, or model call?
-- Did a task exceed a filesystem, sensitive-data, network, or cost policy?
-- Is a conclusion a fact, an inference, or insufficiently evidenced?
+- 一个任务实际读取或修改了哪些文件？
+- 连接了哪些目的地址，哪些模型调用消耗了 token？
+- 哪些证据将系统事件关联到任务、工具或模型调用？
+- 任务是否违反文件系统、敏感数据、网络或成本策略？
+- 一条结论是事实、推断，还是证据不足？
 
-The architecture separates collection, immutable-style event records, correlation, policy evaluation, and enforcement analysis. This keeps a report reproducible from its source artifacts and makes uncertainty inspectable.
+其架构将采集、近似不可变的事件记录、关联、策略评估与执行控制分析分离，使报告可从源工件重算，也使不确定性可被检查。
 
-## Current capabilities
+## 当前能力
 
-The repository contains a tested Python core and a minimal native BPF LSM attach probe:
+仓库包含已测试的 Python 核心与最小化原生 BPF LSM attach 探针：
 
-| Area | Delivered capability |
+| 范畴 | 已交付能力 |
 | --- | --- |
-| Environment discovery | `probe doctor` performs read-only checks for Linux, BTF, tracefs, tracepoints, BPF LSM, toolchain, Python/OpenSSL, and Docker prerequisites. |
-| LLM accounting | Offline HTTP/1.1 framing, chunked/gzip/SSE parsing, usage-state handling, retry registration, and versioned `Decimal` pricing. |
-| Event ledger | Versioned event model, append-only JSONL authority, rebuildable SQLite index, replay, sequencing, and loss accounting. |
-| Attribution | Evidence graphs, external and assisted correlation modes, confidence/ambiguity propagation, and Docker task-to-host mapping abstractions. |
-| Audit reports | Restricted YAML rules, deterministic findings, recomputable summaries, evidence explanation, and text/JSON/self-contained HTML output. |
-| Enforcement model | Explicit audit/enforce semantics, protected-directory decisions, operation support matrix, and documented blind spots. |
-| Evaluation toolkit | Classification metrics, Wilson intervals, performance summaries, and reproducible experiment-manifest validation. |
-| Native validation | A small CO-RE/libbpf program verifies that an available BPF LSM hook can attach and detach cleanly without enforcing a policy. |
+| 环境发现 | `probe doctor` 对 Linux、BTF、tracefs、tracepoint、BPF LSM、工具链、Python/OpenSSL 与 Docker 前提进行只读检查。 |
+| LLM 计账 | 离线 HTTP/1.1 分帧、chunked/gzip/SSE 解析、usage 状态处理、重试登记与版本化 `Decimal` 定价。 |
+| 事件账本 | 版本化事件模型、追加式 JSONL 权威账本、可重建 SQLite 索引、重放、序列与丢失计数。 |
+| 行为归因 | 证据图、外部和辅助两种关联模式、置信度/歧义传播，以及 Docker 任务到宿主机的映射抽象。 |
+| 审计报告 | 受限 YAML 规则、确定性 finding、可重算汇总、证据解释，以及文本/JSON/独立 HTML 输出。 |
+| 执行控制模型 | 明确的 audit/enforce 语义、受保护目录决策、操作支持矩阵与已记录盲区。 |
+| 评估工具集 | 分类指标、Wilson 置信区间、性能摘要与可复现实验清单校验。 |
+| 原生验证 | 小型 CO-RE/libbpf 程序验证可用 BPF LSM hook 可干净地 attach 与 detach，不执行策略。 |
 
-The collection pipeline is intentionally not overstated: there is no production TLS uprobe collector, kernel event collector, or BPF LSM policy loader yet. The native probe proves attachability only; the Python enforcement model does not block filesystem operations. See [Scope and security boundary](#scope-and-security-boundary) for the implications.
+采集管线的能力边界明确：当前尚无生产级 TLS uprobe 采集器、内核事件采集器或 BPF LSM 策略加载器。原生探针只证明可 attach；Python 执行控制模型不会阻断文件系统操作。相关影响见[范围与安全边界](#范围与安全边界)。
 
-## Architecture
+## 架构
 
 ```text
-collection sources (future)                  offline inputs (available)
-TLS probes / kernel events / adapters  -->   calls artifacts + JSONL ledger
+未来采集源                               已支持的离线输入
+TLS 探针 / 内核事件 / 适配器  ------>    calls 工件 + JSONL 账本
                                                     |
                                                     v
-                    event validation, replay, loss accounting, SQLite index
+                    事件校验、重放、丢失计数、SQLite 索引
                                                     |
                                                     v
-        correlation graph <--- process / task / container / assisted markers
+        关联证据图 <--- 进程 / 任务 / 容器 / 辅助标记
                                                     |
                                                     v
-      YAML policy ---> deterministic audit findings ---> report / explain / HTML
+       YAML 策略 ---> 确定性审计 finding ---> report / explain / HTML
                                                     |
                                                     v
-                         enforcement support analysis and BPF attach validation
+                          控制支持分析与 BPF attach 验证
 ```
 
-The source-of-truth format is the M2 JSONL ledger. Reports are reconstructed from the original ledger, policy, and optional calls artifact rather than from a cached aggregate.
+M2 JSONL 账本是权威数据格式。报告由原始账本、策略与可选 calls 工件重建，而非使用缓存汇总。
 
-## Quick start
+## 快速开始
 
-Requirements: Python 3.11+ for the Python components. The native BPF probe additionally needs Linux, BTF, clang, libbpf, libelf, and kernel headers.
+Python 组件需要 Python 3.11+。原生 BPF 探针另需 Linux、BTF、clang、libbpf、libelf 与内核头文件。
 
 ```bash
-# Editable local install; suitable for an already-provisioned environment.
+# 本地可编辑安装，适合已配置完成的开发环境。
 python -m pip install --no-build-isolation --no-deps -e .
 
-# Run the test suite.
+# 运行完整测试。
 python -m pytest -q
 
-# Inspect the host without changing it.
+# 只读检查主机环境。
 probe doctor
 probe doctor --json
 ```
 
-For development with Conda:
+使用 Conda 开发：
 
 ```bash
 conda run -n ms_pointcloud_midterm python -m pip install --no-build-isolation --no-deps -e .
 conda run -n ms_pointcloud_midterm python -m pytest -q
 ```
 
-`probe doctor` is read-only. On macOS and Windows it returns `unsupported`, because those systems are expected to host a Linux VM rather than run the collector directly.
+`probe doctor` 为只读命令。在 macOS 和 Windows 上会返回 `unsupported`，因为这两个系统预期用作 Linux VM 宿主，而非直接运行采集器。
 
-## Reporting and explanation
+## 报告与证据解释
 
-Audit reports accept a policy, an authoritative JSONL event ledger, and optionally a versioned calls artifact:
+审计报告接收策略、权威 JSONL 事件账本，以及可选的版本化 calls 工件：
 
 ```bash
 probe report \
@@ -102,51 +102,51 @@ probe explain EVENT_ID \
   --calls /path/to/calls.json
 ```
 
-`probe report` supports `text`, `json`, and standalone `html` renderers. `probe explain` follows a finding back to the underlying raw event and records whether the result is a verified violation, a pass, or insufficient evidence.
+`probe report` 支持 `text`、`json` 与独立 `html` 渲染器。`probe explain` 可从 finding 回溯至原始事件，并明确结果属于已验证违规、通过，还是证据不足。
 
-The restricted YAML policy format supports four rule families:
+受限 YAML 策略格式支持四类规则：
 
-- forbidden filesystem modifications;
-- actual reads of sensitive paths;
-- destination allow-lists for network activity; and
-- estimated-cost limits.
+- 禁止的文件系统修改；
+- 对敏感路径的实际读取；
+- 网络活动的目的地址白名单；
+- 估算成本上限。
 
-Rules evaluate observed outcomes, not merely syscall attempts. For example, an unsuccessful write attempt does not prove a modification, and absent token usage cannot prove a cost limit was respected.
+规则评估的是已观测到的结果，而非仅系统调用尝试。例如，失败的写入尝试不能证明文件被修改；缺失 token usage 也不能证明成本限制被满足。
 
-Detailed rule, report, and rendering semantics are in [docs/04-audit.md](docs/04-audit.md).
+规则、报告与渲染的详细语义见 [docs/04-audit.md](docs/04-audit.md)。
 
-## Native BPF LSM attach probe
+## 原生 BPF LSM attach 探针
 
-The attach probe is deliberately small and safe: its `file_permission` hook always returns `0`, attaches, then immediately detaches. It verifies an important environment prerequisite without installing a persistent policy.
+该探针被刻意保持为小型且安全的程序：其 `file_permission` hook 始终返回 `0`，attach 后立即 detach。它用于验证重要环境前提，不安装持久策略。
 
 ```bash
 scripts/build-lsm-attach-probe.sh
 sudo bpf/lsm_attach_probe/lsm_attach_probe
 ```
 
-Running the second command requires elevated privileges and loads a short-lived BPF program, so it should be performed only on an intended Linux test VM. Build and cleanup details are documented in [docs/05-bpf-lsm-attach-probe.md](docs/05-bpf-lsm-attach-probe.md).
+第二个命令需要提升权限并会加载一个短生命周期 BPF 程序，应仅在预期的 Linux 测试 VM 中执行。构建与清理细节见 [docs/05-bpf-lsm-attach-probe.md](docs/05-bpf-lsm-attach-probe.md)。
 
-## Repository layout
+## 仓库结构
 
 ```text
 src/agent_probe/
-  audit/          Policy loading, evaluation, findings, reporting, rendering
-  container/      Docker task/container/PID/cgroup/mount-view mapping contracts
-  correlate/      Evidence graph and attribution algorithms
-  enforce/        Filesystem-control model and support matrix
-  events/         Event schema, ledger, index, replay, consistency checks
-  evaluation/     Metrics, intervals, performance summaries, manifests
-  llm/            HTTP/SSE reconstruction, usage, retries, pricing
-  doctor.py       Read-only environment capability discovery
-bpf/              CO-RE/libbpf BPF LSM attach probe
-docs/             Design contracts, operating procedures, evaluation guidance
-tests/            Deterministic unit and integration tests
-scripts/          VM setup and native-probe build helpers
+  audit/          策略加载、评估、finding、报告与渲染
+  container/      Docker 任务/容器/PID/cgroup/挂载视图映射契约
+  correlate/      证据图与归因算法
+  enforce/        文件系统控制模型与支持矩阵
+  events/         事件模式、账本、索引、重放与一致性检查
+  evaluation/     指标、置信区间、性能摘要与实验清单
+  llm/            HTTP/SSE 重建、usage、重试与定价
+  doctor.py       只读环境能力发现
+bpf/              CO-RE/libbpf BPF LSM attach 探针
+docs/             设计契约、操作流程与评估指南
+tests/            确定性单元与集成测试
+scripts/          VM 配置与原生探针构建辅助脚本
 ```
 
-## Development and verification
+## 开发与验证
 
-The project uses a `src/` layout and pytest. Tests use deterministic byte fixtures, in-memory host abstractions, fake container queries, and temporary artifacts; they do not require Docker, a network connection, or root access.
+项目采用 `src/` 布局与 pytest。测试使用确定性字节夹具、内存 Host 抽象、fake 容器查询和临时工件；不需要 Docker、网络连接或 root 权限。
 
 ```bash
 conda run -n ms_pointcloud_midterm python -m pytest -q
@@ -154,47 +154,47 @@ conda run -n ms_pointcloud_midterm python -m agent_probe --version
 conda run -n ms_pointcloud_midterm python -m agent_probe doctor --json
 ```
 
-The VM setup script makes its impact explicit:
+VM 配置脚本会明确展示其影响范围：
 
 ```bash
-bash scripts/setup-vm.sh              # print planned changes only
-bash scripts/setup-vm.sh --check-only # read-only prerequisite check
-bash scripts/setup-vm.sh --apply      # explicit package/configuration changes
+bash scripts/setup-vm.sh              # 仅输出将执行的变更
+bash scripts/setup-vm.sh --check-only # 只读前提检查
+bash scripts/setup-vm.sh --apply      # 显式进行软件包与配置变更
 ```
 
-Before adding a runtime dependency, document the operational problem it solves, its maintenance cost, and the verification it enables. Python runtime dependencies are intentionally empty; native tooling remains an operating-system concern.
+新增运行时依赖前，应记录它解决的运行问题、维护成本与可验证收益。Python 运行时依赖刻意保持为空；原生工具链由操作系统负责管理。
 
-## Scope and security boundary
+## 范围与安全边界
 
-`agent-probe` currently provides offline analysis primitives, not a complete sandbox or universally deployable monitoring agent.
+`agent-probe` 当前提供离线分析基础组件，而非完整沙箱或可普遍部署的监控 Agent。
 
-- The trusted computing base includes the host kernel, root, and the collector administrator. Root or kernel compromise is out of scope.
-- HTTP/2, HTTP/3, static TLS, and unknown provider payloads are not supported by the current LLM reconstruction core.
-- `mmap`, `io_uring`, inherited file descriptors, symlink/hard-link edge cases, and container mount views are not covered by a complete kernel enforcement implementation.
-- Network and cost policy are reporting controls, not network-level blocking or billing guarantees.
-- Existing metrics and experiment-manifest support are evaluation infrastructure. They are not a substitute for real-agent benchmark runs.
+- 可信计算基包括宿主内核、root 与采集器管理员；root 或内核被攻破不在范围内。
+- 当前 LLM 重建核心不支持 HTTP/2、HTTP/3、静态 TLS 及未知提供方载荷。
+- `mmap`、`io_uring`、继承文件描述符、符号链接/硬链接边界情形与容器挂载视图尚未由完整内核强制执行实现覆盖。
+- 网络与成本策略是报告控制，而不是网络级阻断或账单保证。
+- 现有指标与实验清单支持评估工作，但不能替代真实 Agent 基准运行。
 
-The most relevant design documents are:
+相关设计文档：
 
-- [Environment and doctor contract](docs/00-env.md)
-- [LLM reconstruction and accounting](docs/01-llm.md)
-- [Event ledger semantics](docs/02-event-ledger.md)
-- [Correlation and container mapping](docs/03-correlation.md)
-- [Audit policy and report model](docs/04-audit.md)
-- [Enforcement model and BPF validation](docs/05-enforcement.md)
-- [Evaluation protocol](docs/evaluation.md)
+- [环境与 doctor 契约](docs/00-env.md)
+- [LLM 重建与计账](docs/01-llm.md)
+- [事件账本语义](docs/02-event-ledger.md)
+- [关联与容器映射](docs/03-correlation.md)
+- [审计策略与报告模型](docs/04-audit.md)
+- [执行控制模型与 BPF 验证](docs/05-enforcement.md)
+- [评估协议](docs/evaluation.md)
 
-## Contributing
+## 参与贡献
 
-Contributions should preserve the project’s evidence model:
+贡献应保持项目的证据模型：
 
-1. Add deterministic tests for a normal outcome, a policy violation or error path, and insufficient evidence where relevant.
-2. Keep facts, inferences, and unavailable data distinct in schemas and reports.
-3. Do not expose a CLI command as operational unless its underlying behavior is implemented and tested.
-4. Document platform assumptions, privilege requirements, collection gaps, and cleanup behavior for native code.
+1. 为正常结果、违规或错误路径，以及适用时的证据不足情况添加确定性测试。
+2. 在模式与报告中始终区分事实、推断和不可用数据。
+3. 未实现且未经测试的能力不得作为可用 CLI 命令暴露。
+4. 对原生代码记录平台假设、权限要求、采集缺口与清理行为。
 
-Please open an issue before proposing a broad collector or policy-engine integration so that event semantics and compatibility boundaries can be agreed first.
+涉及大规模采集器或策略引擎集成时，请先创建 issue，以便先对事件语义与兼容性边界达成一致。
 
-## License
+## 许可证
 
-This repository does not yet include a license file. Until a license is added by the project owner, all rights are reserved and external redistribution is not granted.
+仓库目前尚未包含许可证文件。在项目所有者添加许可证前，保留所有权利，未授权外部再分发。
