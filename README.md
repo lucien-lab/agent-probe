@@ -14,7 +14,7 @@ Application logs are useful, but they are controlled by the application being ob
 - Did a task exceed a filesystem, sensitive-data, network, or cost policy?
 - Is a conclusion a fact, an inference, or insufficiently evidenced?
 
-The architecture separates collection, immutable-style event records, correlation, policy evaluation, and enforcement planning. This keeps a report reproducible from its source artifacts and makes uncertainty inspectable.
+The architecture separates collection, immutable-style event records, correlation, policy evaluation, and enforcement analysis. This keeps a report reproducible from its source artifacts and makes uncertainty inspectable.
 
 ## Current capabilities
 
@@ -36,7 +36,7 @@ The collection pipeline is intentionally not overstated: there is no production 
 ## Architecture
 
 ```text
-collection sources (planned)                 offline inputs (available)
+collection sources (future)                  offline inputs (available)
 TLS probes / kernel events / adapters  -->   calls artifacts + JSONL ledger
                                                     |
                                                     v
@@ -137,7 +137,6 @@ bpf/              CO-RE/libbpf BPF LSM attach probe
 docs/             Design contracts, operating procedures, evaluation guidance
 tests/            Deterministic unit and integration tests
 scripts/          VM setup and native-probe build helpers
-plan.md           Milestone plan and acceptance criteria
 ```
 
 ## Development and verification
@@ -168,9 +167,9 @@ Before adding a runtime dependency, document the operational problem it solves, 
 - HTTP/2, HTTP/3, static TLS, and unknown provider payloads are not supported by the current LLM reconstruction core.
 - `mmap`, `io_uring`, inherited file descriptors, symlink/hard-link edge cases, and container mount views are not covered by a complete kernel enforcement implementation.
 - Network and cost policy are reporting controls, not network-level blocking or billing guarantees.
-- Existing metrics and experiment-manifest support are evaluation infrastructure. They are not a substitute for the planned real-agent benchmark runs.
+- Existing metrics and experiment-manifest support are evaluation infrastructure. They are not a substitute for real-agent benchmark runs.
 
-The implementation plan, acceptance criteria, and non-goals are maintained in [plan.md](plan.md). The most relevant design documents are:
+The most relevant design documents are:
 
 - [Environment and doctor contract](docs/00-env.md)
 - [LLM reconstruction and accounting](docs/01-llm.md)
