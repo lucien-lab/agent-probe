@@ -1,0 +1,77 @@
+# agent-probe .gitignore
+# 原则：只忽略缓存、构建产物、虚拟环境、覆盖率、编辑器文件和运行产物；
+# 源码（src/、tests/）与计划文档（plan.md、README.md）必须保持可追踪。
+
+# ---------- Python 缓存 ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# ---------- 构建与打包产物 ----------
+build/
+dist/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+*.whl
+
+# ---------- 虚拟环境与工具环境 ----------
+.venv/
+venv/
+ENV/
+env/
+virtualenv/
+.conda/
+
+# ---------- 测试、类型检查与覆盖率 ----------
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+junit*.xml
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# ---------- 编辑器与操作系统 ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---------- 敏感配置 ----------
+# 计划要求 API key 不进入日志；本地凭据文件一律不提交。
+.env
+.env.*
+!.env.example
+
+# ---------- 项目运行产物 ----------
+# run_id 工件、事件账本、索引、报告与日志由后续里程碑生成，可离线重建，不入库。
+/runs/
+/artifacts/
+/report/
+/.probe/
+*.log
+*.jsonl
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+probe-report.html
+# 但测试夹具、文档示例与回放数据属于可复现材料，必须入库。
+!tests/**/*.jsonl
+!fixtures/**/*.jsonl
+!docs/**/*.jsonl

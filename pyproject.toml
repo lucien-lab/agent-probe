@@ -1,0 +1,52 @@
+[build-system]
+# 保留声明式 PEP 517 构建后端；离线安装靠 --no-build-isolation 复用环境已有 setuptools
+# 实现（见 README），而不是删除本节或绕过构建系统。
+# 下限取实际最低值而非随手取高：PEP 621 元数据需要 >=61，可编辑安装
+# （PEP 660 build_editable）需要 >=64，因此 >=64 即真实下限。
+# 注意：setuptools < 70.1 未内嵌 wheel，那种环境下仍需另行安装 wheel。
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-probe"
+description = "Coding Agent 的系统审计、可解释行为关联与受限执行控制（当前为工程骨架）。"
+readme = "README.md"
+requires-python = ">=3.11"
+# 版本单一来源：src/agent_probe/__init__.py 中的 __version__。
+dynamic = ["version"]
+keywords = ["ebpf", "audit", "observability", "tracing", "llm-agent"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Monitoring",
+]
+# 骨架阶段没有运行时依赖；采集侧的 libbpf/eBPF 工具链由后续里程碑处理，
+# 不作为 Python 依赖安装，新依赖的引入需说明其解决的问题与维护成本。
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+probe = "agent_probe.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "agent_probe.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+# 测试与计划文档分离：源码在 src/ 下，测试在 tests/ 下。
+testpaths = ["tests"]
+# 允许在未执行可编辑安装的情况下直接运行 pytest（src-layout）。
+pythonpath = ["src"]
+addopts = "-ra --strict-markers --strict-config"
