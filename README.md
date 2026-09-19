@@ -197,4 +197,6 @@ bash scripts/setup-vm.sh --apply      # 显式进行软件包与配置变更
 
 ## 许可证
 
-仓库目前尚未包含许可证文件。在项目所有者添加许可证前，保留所有权利，未授权外部再分发。
+GPL-2.0（见 [LICENSE](LICENSE)）。
+
+eBPF 程序以 GPL 兼容许可发布，才能使用受 GPL 限制的内核 BPF 能力；源码中的 `SEC("license") = "GPL"` 与本仓库 `LICENSE` 保持一致。
