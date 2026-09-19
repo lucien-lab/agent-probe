@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import re
 import subprocess
 from collections.abc import Callable
@@ -41,9 +42,28 @@ def test_module_entrypoint_reports_version(run_cli_module: RunCliModule) -> None
     assert result.stderr == ""
 
 
-def test_module_entrypoint_doctor_is_a_placeholder(run_cli_module: RunCliModule) -> None:
+def test_module_entrypoint_doctor_emits_report_with_matching_exit_code(
+    run_cli_module: RunCliModule,
+) -> None:
+    result = run_cli_module("doctor", "--json")
+
+    payload = json.loads(result.stdout)
+    # 退出码必须与报告一致；具体值取决于宿主（Linux=0/1，macOS 等非 Linux=2），
+    # 不在测试中硬编码，以免测试随开发机平台漂移。
+    assert result.returncode == payload["overall"]["exit_code"]
+    assert result.returncode in (0, 1, 2)
+    assert payload["schema_version"] == 1
+    assert payload["checks"]
+    assert result.stderr == ""
+
+
+def test_module_entrypoint_doctor_text_mode_is_not_a_placeholder(
+    run_cli_module: RunCliModule,
+) -> None:
     result = run_cli_module("doctor")
 
-    assert result.returncode == 0
-    assert "尚未实现" in result.stdout
+    assert result.returncode in (0, 1, 2)
+    assert "overall:" in result.stdout
+    assert "kernel.btf" in result.stdout
+    assert "尚未实现" not in result.stdout
     assert result.stderr == ""

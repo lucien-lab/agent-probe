@@ -1,9 +1,10 @@
 """``probe`` 命令行入口。
 
-骨架阶段只提供两条稳定契约：
+当前稳定契约：
 
 * ``probe --version``：输出版本号，供打包与安装自检使用。
-* ``probe doctor``：打印占位说明，说明该命令尚未实现以及后续会检查什么。
+* ``probe doctor [--json]``：执行 M0 的只读环境与能力检查（见 :mod:`agent_probe.doctor`），
+  文本或 JSON 输出，退出码区分 "通过 / 必需项失败 / 主机不受支持 / doctor 自身出错"。
 
 本模块刻意不包含任何采集、协议解析、事件模型、存储或执行控制逻辑；
 这些内容由后续里程碑（见 ``plan.md``）负责，新增子命令时同样遵循
@@ -13,32 +14,27 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 
-from agent_probe import __version__
+from agent_probe import __version__, doctor
 
-__all__ = ["PROG", "DOCTOR_PLACEHOLDER", "build_parser", "main"]
+__all__ = ["PROG", "build_parser", "main"]
 
 #: 对外命令名（控制台脚本与 python -m 均使用该名称展示用法）。
 PROG = "probe"
 
-#: ``probe doctor`` 的占位说明。仅描述计划，不代表已实现的检查。
-DOCTOR_PLACEHOLDER = """\
-probe doctor：环境自检尚未实现（当前为工程骨架阶段）。
 
-该命令计划在 M0（环境与能力验证）实现，届时将检查并打印：
-  - 内核版本、架构与 BTF 可用性
-  - tracepoint / fentry-fexit / BPF LSM 挂点可用性
-  - 被测 agent 与 Docker 的版本、容器镜像摘要
-  - 探针工具链（libbpf、clang、bpftool、Python/OpenSSL）版本
-
-本次调用未执行任何检查，也未修改任何环境。"""
-
-
-def _cmd_doctor(_args: argparse.Namespace) -> int:
-    """打印占位说明；不做环境探测，返回 0 表示命令本身执行成功。"""
-    print(DOCTOR_PLACEHOLDER)
-    return 0
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """执行 ``probe doctor``，返回 doctor 退出码。"""
+    as_json = bool(getattr(args, "as_json", False))
+    try:
+        report = doctor.collect()
+    except Exception as exc:  # doctor.collect 设计上不抛异常；这里是最后一道防线
+        print(f"probe doctor: 内部错误：{type(exc).__name__}: {exc}", file=sys.stderr)
+        return doctor.EXIT_INTERNAL_ERROR
+    print(doctor.render_json(report) if as_json else doctor.render_text(report))
+    return report.exit_code
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROG,
         description="agent-probe：Coding Agent 的系统审计、行为关联与受限执行控制。",
-        epilog="骨架阶段仅提供 --version 与 doctor；其余子命令将随里程碑逐步加入。",
+        epilog="当前提供 --version 与 doctor（M0 只读环境检查）；其余子命令将随里程碑逐步加入。",
     )
     parser.add_argument(
         "--version",
@@ -58,12 +54,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="打印版本号并退出",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
-    doctor = subparsers.add_parser(
+    doctor_parser = subparsers.add_parser(
         "doctor",
-        help="环境自检（占位，尚未实现）",
-        description="检查内核、eBPF 挂点与探针工具链（占位，尚未实现）。",
+        help="M0 只读环境与能力检查（BTF/tracefs/tracepoint/fentry-fexit/BPF LSM/工具链）",
+        description=(
+            "只读检查当前主机是否满足 M0 的采集前提，并在报告中保留判断依据（evidence）。"
+            "退出码：0=必需项通过，1=存在必需项失败，2=当前主机不受支持，3=doctor 自身出错。"
+            "非 Linux 主机会给出 unsupported 结果而不是报错。"
+        ),
     )
-    doctor.set_defaults(handler=_cmd_doctor)
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="以稳定 JSON（schema_version=1）输出，便于机器解析",
+    )
+    doctor_parser.set_defaults(handler=_cmd_doctor)
     return parser
 
 
