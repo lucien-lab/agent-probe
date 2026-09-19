@@ -150,6 +150,11 @@ class ContainerQuery(Protocol):
     ``inspect`` 的返回值语义是"等价于 ``docker inspect <id>`` 的 JSON 对象"：
     既可以被 :func:`agent_probe.container.parse_inspect` 解析，
     也可以携带可选扩展键（``CgroupID``/``CgroupPath``）。
+
+    **失败契约**：实现必须抛 :class:`~agent_probe.container.errors.ContainerQueryError`
+    （或其子类）。``ContainerTaskMapper`` 只把 ``ContainerError`` 子类转换成
+    ``outcome=ERROR``；其他异常会按其原样向上传播（fail-loud，不静默降级为
+    ``UNMAPPED``）。这样"查询失败"与"确实没有匹配容器"不会混为一谈。
     """
 
     def list_container_ids(self) -> tuple[str, ...]:

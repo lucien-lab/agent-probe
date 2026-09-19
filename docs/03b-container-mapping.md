@@ -253,6 +253,10 @@ class ContainerQuery(Protocol):
 * **失败即失败**：非零退出、`returncode=None`（超时/无法启动）、stdout 不是 JSON、
   JSON 不是"单个容器对象"（空数组 → `ContainerNotFoundError`）、必需字段缺失、
   返回 ID 与请求不一致——一律抛 `ContainerQueryError`（或其子类）。
+* **自定义 `ContainerQuery` 的失败契约**：实现必须抛 `ContainerQueryError`。
+  `ContainerTaskMapper` 只把 `ContainerError` 子类转为 `outcome=ERROR`；
+  其他异常原样向上传播（fail-loud），**不会**被降级成 `UNMAPPED`——
+  "查询失败"与"确实没有匹配容器"必须能区分开。
 * `DockerCli(query=upstream)` 可用于**委托**：把别的后端（cri/containerd/mock）
   包装成同一接口；此时不执行 docker。`query` 与 `runner` 互斥。
 * **cgroup 增强是显式的**：默认 `cgroup_reader=None`，`inspect()` 的输出与

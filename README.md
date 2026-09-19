@@ -3,19 +3,22 @@
 为 Coding Agent 提供**独立于应用日志**的系统审计、可解释的行为关联与受限执行控制：
 回答“任务动了哪些文件、连了哪些网络、消耗了多少 token、是否违反策略，以及这些结论有多可靠”。
 
-> ## 当前状态：M0 能力检测 + M1/M2 库层已落地（未接入 CLI，无采集能力）
+> ## 当前状态：M0 能力检测 + M1/M2/M3 库层已落地（未接入 CLI，无采集能力）
 >
 > 仓库目前有：可安装的 src-layout 包、基于 `argparse` 的 CLI 入口、
 > **`probe doctor` 的只读环境能力检测**（M0）、
 > **`agent_probe.llm` 的 HTTP/1.1 流量重建与计账库**（M1，纯 Python）、
 > **`agent_probe.events` 的事件模型与可靠账本库**（M2，纯 Python）、
+> **`agent_probe.correlate` 的可解释关联引擎**（M3，纯 Python，含两种关联模式与证据图）、
+> **`agent_probe.container` 的 Docker 任务映射库**（M3，纯 Python，查询接口可注入）、
 > pytest 配置与行为测试。
 >
-> M1/M2 目前**只提供库 API，尚未在 `probe` CLI 中注册任何子命令**：
-> 它们接收的仍是对内存字节夹具的离线输入，不包含 TLS uprobe/eBPF 采集。
-> 因此 `plan.md` 中 M1 的“真实流量捕获率/usage 一致率”和 M2 的
-> “30 类操作夹具 + strace/auditd 交叉验证”等**出口验收项尚未达成**，
-> 相关指标一律不得引用本仓库当前状态作为已验证结果。
+> M1/M2/M3 目前**只提供库 API，尚未在 `probe` CLI 中注册任何子命令**：
+> 它们接收的仍是对内存字节夹具与合成事件流的离线输入，不包含 TLS uprobe/eBPF 采集，
+> 也不执行任何真实 `docker` 查询（容器映射由可注入的 `ContainerQuery` 提供，测试用 fake）。
+> 因此 `plan.md` 中 M1 的“真实流量捕获率/usage 一致率”、M2 的
+> “30 类操作夹具 + strace/auditd 交叉验证”与 M3 的“≥200 条带独立预期关系的样本”
+> 等**出口验收项尚未达成**，相关指标一律不得引用本仓库当前状态作为已验证结果。
 >
 > - `probe --version` 输出包版本。
 > - `probe doctor [--json]` 检查 Linux/ARM64、BTF、tracefs、`sched_process_exec` tracepoint、
@@ -23,11 +26,13 @@
 >   结构化输出 + 明确退出码；**只读**，不安装软件、不修改系统配置；非 Linux 主机会给出
 >   `unsupported` 结果而不是报错（因此 macOS 上退出码非零是预期结果）。
 >
-> 尚未实现：eBPF 探针与 TLS 采集、Docker 映射、关联引擎、审计规则与报告、
-> 执行控制、Docker 镜像与 CI。
+> 尚未实现：eBPF 探针与 TLS 采集、审计规则与报告（M4）、
+> 受限执行控制（M5）、对照与消融实验（M6）、Docker 镜像与 CI。
 > 完整计划见 [`plan.md`](plan.md)；环境基线、退出码与 M0 验收证据清单见
 > [`docs/00-env.md`](docs/00-env.md)；M1 库契约见 [`docs/01-llm.md`](docs/01-llm.md)；
-> M2 故障与一致性语义见 [`docs/02-event-ledger.md`](docs/02-event-ledger.md)。
+> M2 故障与一致性语义见 [`docs/02-event-ledger.md`](docs/02-event-ledger.md)；
+> M3 关联语义见 [`docs/03-correlation.md`](docs/03-correlation.md)；
+> M3 容器映射见 [`docs/03b-container-mapping.md`](docs/03b-container-mapping.md)。
 
 ### `probe doctor` 速览
 
@@ -61,6 +66,8 @@ probe doctor --json     # 稳定 JSON（schema_version = 1）
 │   ├── 00-env.md              # M0 环境基线、doctor 契约与验收证据清单
 │   ├── 01-llm.md              # M1 协议重建/usage/计价 API、上限与隐私默认值
 │   ├── 02-event-ledger.md     # M2 事件模型、账本一致性、故障与重建语义
+│   ├── 03-correlation.md      # M3 证据图、两种关联模式、置信度/歧义与消融
+│   ├── 03b-container-mapping.md # M3 容器映射、竞态语义、挂载视图与真值边界
 │   └── delegation-progress.md
 ├── scripts/
 │   └── setup-vm.sh            # 幂等环境脚本（--check-only / --apply）
@@ -71,7 +78,9 @@ probe doctor --json     # 稳定 JSON（schema_version = 1）
 │       ├── cli.py             # argparse CLI：--version 与 doctor
 │       ├── doctor.py          # M0 只读能力检测（可注入 Host，结构化输出）
 │       ├── llm/               # M1 HTTP/1.1 重建、SSE、usage、Decimal 计价、重试登记
-│       └── events/            # M2 事件模型、JSONL 账本、SQLite 派生索引、重放
+│       ├── events/            # M2 事件模型、JSONL 账本、SQLite 派生索引、重放
+│       ├── correlate/         # M3 证据图、外部/辅助关联模式、置信度与消融
+│       └── container/         # M3 标签→容器→宿主 PID/cgroup→挂载视图映射
 └── tests/
     ├── conftest.py            # 共享夹具（子进程运行 CLI）
     ├── fake_host.py           # 内存 Host：构造 Linux 能力矩阵，不依赖宿主平台
@@ -79,7 +88,9 @@ probe doctor --json     # 稳定 JSON（schema_version = 1）
     ├── test_doctor.py         # doctor 检查/JSON schema/退出码测试
     ├── test_package.py        # 包与 python -m 行为测试
     ├── llm/                   # M1 确定性字节夹具与回放测试（零网络）
-    └── events/                # M2 账本/索引/重放测试（tmp_path，不污染仓库）
+    ├── events/                # M2 账本/索引/重放测试（tmp_path，不污染仓库）
+    ├── correlate/             # M3 合成事件流与并发/血缘/消融测试
+    └── container/            # M3 映射测试（fake ContainerQuery，不调用真实 docker）
 ```
 
 ## 开发环境与最小命令
@@ -151,6 +162,10 @@ bash scripts/setup-vm.sh --apply        # 显式安装（幂等）；由人工�
   usage 四态、Decimal 版本化计价、显式重试登记、默认脱敏）。
 - M2 离线账本核心：`agent_probe.events` + `docs/02-event-ledger.md`（事件模型、
   JSONL 权威账本、可重建 SQLite 索引、丢失计数、离线重放与一致性校验）。
+- M3 离线关联核心：`agent_probe.correlate` + `docs/03-correlation.md`（证据图、
+  外部/辅助两种模式、置信度与歧义、消融开关、序列化与 explain）。
+- M3 离线容器映射：`agent_probe.container` + `docs/03b-container-mapping.md`
+  （可注入 `ContainerQuery`、四种 outcome、挂载视图与目录边界语义）。
 
 **仍未完成（不得声称已完成的出口项）**
 
@@ -160,6 +175,9 @@ bash scripts/setup-vm.sh --apply        # 显式安装（幂等）；由人工�
   以及 `probe` CLI 的计账输出（当前库未接入 CLI，也未接触真实 TLS 字节）。
 - M2 **系统事件真值**：≥30 类操作夹具 + strace/auditd 交叉验证、30 分钟额定负载与
   过载丢失可检测性、eBPF 探针侧采集（当前只有用户态账本，无任何采集源）。
+- M3 **真实样本评估**：≥200 条带独立预期关系的样本（串行/2、5 路并发/子进程/容器）、
+  真实 Docker 标签映射与短命容器竞态实测、辅助标记适配器接入两个真实 agent。
+  当前只有合成事件流与 fake `ContainerQuery`，未接触真实 docker 或真实 agent。
 
 库 API 的契约与限制以 `docs/01-llm.md`、`docs/02-event-ledger.md` 为准；
 两者都明确列出了**不支持的协议/路径**，不得外推为通用兼容性承诺。
